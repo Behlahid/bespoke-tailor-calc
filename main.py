@@ -37,14 +37,18 @@ app.add_middleware(
 
 @app.middleware("http")
 async def vercel_path_normalizer(request: Request, call_next):
-    path = request.scope.get("path", "")
-    # If Vercel passed /api/index.py or /api/index prefix
-    if path.startswith("/api/index.py"):
-        sub = path[len("/api/index.py"):]
-        request.scope["path"] = sub if sub else "/"
-    elif path.startswith("/api/index"):
-        sub = path[len("/api/index"):]
-        request.scope["path"] = sub if sub else "/"
+    custom_path = request.query_params.get("__path__")
+    if custom_path:
+        clean_path = custom_path.split("?")[0]
+        request.scope["path"] = clean_path if clean_path.startswith("/") else "/" + clean_path
+    else:
+        path = request.scope.get("path", "")
+        if path.startswith("/api/index.py"):
+            sub = path[len("/api/index.py"):]
+            request.scope["path"] = sub if sub else "/"
+        elif path.startswith("/api/index"):
+            sub = path[len("/api/index"):]
+            request.scope["path"] = sub if sub else "/"
     
     return await call_next(request)
 
@@ -136,6 +140,7 @@ def debug_endpoint(request: Request):
     return {
         "scope_path": request.scope.get("path"),
         "root_path": request.scope.get("root_path"),
+        "query_params": dict(request.query_params),
         "headers": dict(request.headers)
     }
 
