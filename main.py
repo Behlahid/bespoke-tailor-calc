@@ -35,6 +35,23 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def vercel_path_normalizer(request: Request, call_next):
+    path = request.scope.get("path", "")
+    # Handle Vercel serverless prefix
+    if path.startswith("/api/index.py"):
+        sub = path[len("/api/index.py"):]
+        if not sub or sub == "/":
+            request.scope["path"] = "/"
+        elif not sub.startswith("/api"):
+            request.scope["path"] = "/api" + (sub if sub.startswith("/") else "/" + sub)
+        else:
+            request.scope["path"] = sub
+    elif not path.startswith("/api") and path not in ["/", "/favicon.ico", "/index.html"] and not path.startswith("/static"):
+        # e.g. /calculate -> /api/calculate
+        request.scope["path"] = "/api" + (path if path.startswith("/") else "/" + path)
+    return await call_next(request)
+
 # Mount static files
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 os.makedirs(static_dir, exist_ok=True)
