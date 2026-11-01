@@ -172,6 +172,17 @@
     // Refresh specific tab data
     if (targetId === "view-kapda") {
       runCalculation();
+      if (drapeContainer && renderer && camera) {
+        setTimeout(() => {
+          const w = drapeContainer.clientWidth;
+          const h = drapeContainer.clientHeight;
+          if (w && h) {
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            renderer.setSize(w, h);
+          }
+        }, 60);
+      }
     } else if (targetId === "view-khata") {
       loadLedgerOrders();
       loadStats();
@@ -294,26 +305,23 @@
       previousMousePosition = { x: e.clientX, y: e.clientY };
     });
 
-    // Touch support
+    // Touch support (mobile-first with passive listeners)
     dom.addEventListener("touchstart", (e) => {
       if (e.touches.length === 1) {
         isDragging = true;
         previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
       }
-    });
+    }, { passive: true });
 
-    window.addEventListener("touchend", () => { isDragging = false; });
+    window.addEventListener("touchend", () => { isDragging = false; }, { passive: true });
 
     dom.addEventListener("touchmove", (e) => {
       if (!isDragging || e.touches.length !== 1) return;
       const deltaX = e.touches[0].clientX - previousMousePosition.x;
-      const deltaY = e.touches[0].clientY - previousMousePosition.y;
-
       clothMesh.rotation.y += deltaX * 0.012;
       mannequinGroup.rotation.y += deltaX * 0.012;
-
       previousMousePosition = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-    });
+    }, { passive: true });
 
     // 60fps Drape Wave Animation
     let clock = new THREE.Clock();
