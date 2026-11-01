@@ -6,7 +6,7 @@ and MySQL client fitting ledger with printable dockets.
 
 import os
 from typing import Optional, Dict, Any, List
-from fastapi import FastAPI, Depends, HTTPException, Query, Request
+from fastapi import FastAPI, APIRouter, Depends, HTTPException, Query, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -37,12 +37,15 @@ app.add_middleware(
 
 @app.middleware("http")
 async def vercel_path_normalizer(request: Request, call_next):
-    # If Vercel rewrote the request, restore the original path from x-matched-path
-    matched_path = request.headers.get("x-matched-path") or request.headers.get("x-invoke-path") or request.headers.get("x-forwarded-uri")
-    if matched_path:
-        # Strip query string if any attached to matched_path
-        clean_path = matched_path.split("?")[0]
-        request.scope["path"] = clean_path
+    path = request.scope.get("path", "")
+    # If Vercel passed /api/index.py or /api/index prefix
+    if path.startswith("/api/index.py"):
+        sub = path[len("/api/index.py"):]
+        request.scope["path"] = sub if sub else "/"
+    elif path.startswith("/api/index"):
+        sub = path[len("/api/index"):]
+        request.scope["path"] = sub if sub else "/"
+    
     return await call_next(request)
 
 # Mount static files
@@ -116,9 +119,11 @@ class OrderCreate(BaseModel):
     workshop_section: str = "Marine Lines Workshop"
     notes: Optional[str] = ""
 
-# ----------------- API ENDPOINTS -----------------
+# ----------------- ROUTER WITH DUAL PREFIX SUPPORT -----------------
 
-@app.get("/api/health")
+api_router = APIRouter()
+
+@api_router.get("/health")
 def health_check():
     return {
         "status": "healthy",
@@ -126,7 +131,15 @@ def health_check():
         "timestamp": datetime.utcnow().isoformat()
     }
 
-@app.get("/api/stats")
+@api_router.get("/debug")
+def debug_endpoint(request: Request):
+    return {
+        "scope_path": request.scope.get("path"),
+        "root_path": request.scope.get("root_path"),
+        "headers": dict(request.headers)
+    }
+
+@api_router.get("/stats")
 def get_atelier_stats(db: Session = Depends(get_db)):
     active_orders_count = db.query(Order).filter(Order.status != "Delivered").count()
     all_orders = db.query(Order).all()
@@ -142,7 +155,7 @@ def get_atelier_stats(db: Session = Depends(get_db)):
         "database_engine": active_dialect.upper()
     }
 
-@app.post("/api/calculate")
+@api_router.post("/calculate")
 def calculate_fabric_yardage(payload: YardageRequest):
     result = TailorYardageCalculator.calculate(
         garment_style=payload.garment_style,
@@ -154,7 +167,7 @@ def calculate_fabric_yardage(payload: YardageRequest):
     )
     return result
 
-@app.get("/api/customers")
+@api_router.get("/customers")
 def list_customers(db: Session = Depends(get_db)):
     customers = db.query(Customer).order_by(Customer.id.asc()).all()
     results = []
@@ -165,7 +178,7 @@ def list_customers(db: Session = Depends(get_db)):
         results.append(cd)
     return results
 
-@app.post("/api/customers")
+@api_router.post("/customers")
 def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     customer = Customer(
         name=payload.name,
@@ -179,7 +192,7 @@ def create_customer(payload: CustomerCreate, db: Session = Depends(get_db)):
     db.refresh(customer)
     return customer.to_dict()
 
-@app.get("/api/customers/{customer_id}")
+@api_router.get("/customers/{customer_id}")
 def get_customer(customer_id: int, db: Session = Depends(get_db)):
     c = db.query(Customer).filter(Customer.id == customer_id).first()
     if not c:
@@ -189,7 +202,7 @@ def get_customer(customer_id: int, db: Session = Depends(get_db)):
     data["orders"] = [o.to_dict() for o in c.orders]
     return data
 
-@app.post("/api/customers/{customer_id}/measurements")
+@api_router.post("/customers/{customer_id}/measurements")
 def save_measurement(customer_id: int, payload: MeasurementIn, db: Session = Depends(get_db)):
     c = db.query(Customer).filter(Customer.id == customer_id).first()
     if not c:
@@ -220,7 +233,7 @@ def save_measurement(customer_id: int, payload: MeasurementIn, db: Session = Dep
     db.refresh(m)
     return m.to_dict()
 
-@app.get("/api/orders")
+@api_router.get("/orders")
 def list_orders(
     status: Optional[str] = None,
     search: Optional[str] = None,
@@ -250,9 +263,8 @@ def list_orders(
         ]
     return results
 
-@app.post("/api/orders")
+@api_router.post("/orders")
 def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
-    # Generate unique order number
     count = db.query(Order).count() + 100
     order_no = f"BY-2024-{count}"
 
@@ -291,7 +303,7 @@ def create_order(payload: OrderCreate, db: Session = Depends(get_db)):
     db.refresh(order)
     return order.to_dict()
 
-@app.get("/api/orders/{order_id}")
+@api_router.get("/orders/{order_id}")
 def get_order(order_id: int, db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -301,7 +313,7 @@ def get_order(order_id: int, db: Session = Depends(get_db)):
         data["measurements"] = order.measurement.to_dict()
     return data
 
-@app.patch("/api/orders/{order_id}/status")
+@api_router.patch("/orders/{order_id}/status")
 def update_order_status(order_id: int, status: str = Query(...), db: Session = Depends(get_db)):
     order = db.query(Order).filter(Order.id == order_id).first()
     if not order:
@@ -310,11 +322,14 @@ def update_order_status(order_id: int, status: str = Query(...), db: Session = D
     db.commit()
     return {"id": order.id, "status": order.status}
 
+# Mount router on both /api and root /
+app.include_router(api_router, prefix="/api")
+app.include_router(api_router, prefix="")
+
 # ----------------- WEB APP FRONTEND ROUTE -----------------
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    # Read the full application page from static/index.html
     html_path = os.path.join(os.path.dirname(__file__), "static", "index.html")
     if os.path.exists(html_path):
         with open(html_path, "r", encoding="utf-8") as f:
@@ -327,4 +342,3 @@ handler = app
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-
