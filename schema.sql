@@ -114,3 +114,4 @@ CREATE TABLE IF NOT EXISTS `orders` (
   INDEX `idx_orders_customer` (`customer_id`),
   INDEX `idx_orders_status` (`status`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+

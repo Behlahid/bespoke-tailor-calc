@@ -36,8 +36,9 @@ app.add_middleware(
 )
 
 # Mount static files
-os.makedirs("static", exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
+static_dir = os.path.join(os.path.dirname(__file__), "static")
+os.makedirs(static_dir, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 # ----------------- PYDANTIC SCHEMAS -----------------
 
@@ -310,6 +311,10 @@ def index():
             return f.read()
     return "<h1>TailorCraft Yardage Studio: static/index.html not found</h1>"
 
+# Serverless export alias for Vercel
+handler = app
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+

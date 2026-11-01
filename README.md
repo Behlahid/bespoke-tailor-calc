@@ -56,3 +56,4 @@ To run the raw MySQL schema:
 ```bash
 mysql -u root -p < schema.sql
 ```
+

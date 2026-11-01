@@ -178,3 +178,4 @@ class Order(Base):
             "notes": self.notes or "",
             "created_at": self.created_at.isoformat() if self.created_at else None,
         }
+
